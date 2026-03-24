@@ -96,4 +96,84 @@ Emitted when existing metadata is updated via `update_metadata(offering_id, meta
 - **OwnershipTransfer**: not present in current vault; would list old_owner, new_owner.
 - **Pause**: not present in current vault; would indicate pause state change.
 
-Settlement or other contracts in this repo will have their events documented here as they are added.
+---
+
+## Contract: Callora Settlement (`callora-settlement` v0.1.0)
+
+### `payment_received`
+
+Emitted by `receive_payment()` for every inbound payment regardless of `to_pool` mode.
+
+| Field   | Location | Type    | Description                                                                 |
+|---------|----------|---------|-----------------------------------------------------------------------------|
+| topic 0 | topics   | Symbol  | `"payment_received"`                                                        |
+| topic 1 | topics   | Address | `caller` — the vault or admin address that sent the payment                 |
+| `from_vault` | data | Address | same as topic 1 (vault/admin caller)                                   |
+| `amount`     | data | i128    | payment amount in USDC micro-units (stroops); always > 0                |
+| `to_pool`    | data | bool    | `true` → credited to global pool; `false` → credited to a developer    |
+| `developer`  | data | Option\<Address\> | `None` when `to_pool=true`; developer address when `to_pool=false` |
+
+**Example — `to_pool = true` (global pool credit):**
+
+```json
+{
+  "topics": ["payment_received", "GCALLER..."],
+  "data": {
+    "from_vault": "GCALLER...",
+    "amount": 5000000,
+    "to_pool": true,
+    "developer": null
+  }
+}
+```
+
+**Example — `to_pool = false` (developer credit):**
+
+```json
+{
+  "topics": ["payment_received", "GCALLER..."],
+  "data": {
+    "from_vault": "GCALLER...",
+    "amount": 2500000,
+    "to_pool": false,
+    "developer": "GDEV..."
+  }
+}
+```
+
+---
+
+### `balance_credited`
+
+Emitted by `receive_payment()` **only** when `to_pool = false`. Follows the `payment_received` event for the same call.
+
+| Field         | Location | Type    | Description                                          |
+|---------------|----------|---------|------------------------------------------------------|
+| topic 0       | topics   | Symbol  | `"balance_credited"`                                 |
+| topic 1       | topics   | Address | `developer` — the address whose balance was updated  |
+| `developer`   | data     | Address | same as topic 1                                      |
+| `amount`      | data     | i128    | amount credited in this call (USDC micro-units)      |
+| `new_balance` | data     | i128    | developer's cumulative balance after this credit     |
+
+**Example:**
+
+```json
+{
+  "topics": ["balance_credited", "GDEV..."],
+  "data": {
+    "developer": "GDEV...",
+    "amount": 2500000,
+    "new_balance": 7500000
+  }
+}
+```
+
+> **Note:** `balance_credited` is never emitted when `to_pool = true`. Indexers tracking developer earnings should subscribe to this event; indexers tracking total protocol revenue should subscribe to `payment_received` with `to_pool = true`.
+
+### Version notes
+
+| Version | Change |
+|---------|--------|
+| 0.1.0   | Initial settlement events: `payment_received`, `balance_credited` |
+
+> If `PaymentReceivedEvent` or `BalanceCreditedEvent` structs gain new fields in future versions, a new row will be added here with the crate semver and a description of the added/changed fields.
