@@ -6,6 +6,7 @@ use soroban_sdk::{contract, contractimpl, token, Address, Env, Symbol, Vec};
 ///
 /// Flow: vault deduct → vault transfers USDC to this contract → admin calls distribute(to, amount).
 const ADMIN_KEY: &str = "admin";
+const PENDING_ADMIN_KEY: &str = "pending_admin";
 const USDC_KEY: &str = "usdc";
 
 #[contract]
@@ -55,15 +56,19 @@ impl RevenuePool {
             .expect("revenue pool not initialized")
     }
 
-    /// Replace the current admin. Only the existing admin may call this.
+    /// Initiate replacement of the current admin. Only the existing admin may call this.
+    /// The new admin must call `claim_admin` to complete the transfer.
     ///
     /// # Arguments
     /// * `env` - The environment running the contract.
     /// * `caller` - Must be the current admin.
-    /// * `new_admin` - Address of the new admin to be set.
+    /// * `new_admin` - Address of the proposed new admin.
     ///
     /// # Panics
     /// * If the caller is not the current admin (`"unauthorized: caller is not admin"`).
+    ///
+    /// # Events
+    /// Emits an `admin_transfer_started` event with the `current_admin` as a topic and `new_admin` as data.
     pub fn set_admin(env: Env, caller: Address, new_admin: Address) {
         caller.require_auth();
         let current = Self::get_admin(env.clone());
@@ -71,7 +76,44 @@ impl RevenuePool {
             panic!("unauthorized: caller is not admin");
         }
         let inst = env.storage().instance();
-        inst.set(&Symbol::new(&env, ADMIN_KEY), &new_admin);
+        inst.set(&Symbol::new(&env, PENDING_ADMIN_KEY), &new_admin);
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_started"), current),
+            new_admin,
+        );
+    }
+
+    /// Complete the admin transfer. Only the pending admin may call this.
+    ///
+    /// # Arguments
+    /// * `env` - The environment running the contract.
+    /// * `caller` - Must be the pending admin set via `set_admin`.
+    ///
+    /// # Panics
+    /// * If no pending admin is set (`"no pending admin"`).
+    /// * If the caller is not the pending admin (`"unauthorized: caller is not pending admin"`).
+    ///
+    /// # Events
+    /// Emits an `admin_transfer_completed` event with the `new_admin` as a topic.
+    pub fn claim_admin(env: Env, caller: Address) {
+        caller.require_auth();
+        let inst = env.storage().instance();
+        let pending: Address = inst
+            .get(&Symbol::new(&env, PENDING_ADMIN_KEY))
+            .expect("no pending admin");
+
+        if caller != pending {
+            panic!("unauthorized: caller is not pending admin");
+        }
+
+        inst.set(&Symbol::new(&env, ADMIN_KEY), &pending);
+        inst.remove(&Symbol::new(&env, PENDING_ADMIN_KEY));
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_transfer_completed"), pending),
+            (),
+        );
     }
 
     /// Placeholder: record that payment was received (e.g. from vault).

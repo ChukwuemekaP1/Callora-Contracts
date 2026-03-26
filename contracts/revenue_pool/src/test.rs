@@ -130,7 +130,7 @@ fn distribute_unauthorized_panics() {
 }
 
 #[test]
-fn set_admin_transfers_control() {
+fn set_admin_two_step_transfers_control() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -141,11 +141,71 @@ fn set_admin_transfers_control() {
 
     client.init(&admin, &usdc_address);
     fund_pool(&usdc_admin, &pool_addr, 300);
+    
+    // Step 1: Nominate
     client.set_admin(&admin, &new_admin);
+    // Still old admin
+    assert_eq!(client.get_admin(), admin);
+
+    // Step 2: Claim
+    client.claim_admin(&new_admin);
     assert_eq!(client.get_admin(), new_admin);
 
     client.distribute(&new_admin, &developer, &100);
     assert_eq!(usdc_client.balance(&developer), 100);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized: caller is not pending admin")]
+fn claim_admin_unauthorized_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let (_, client) = create_pool(&env);
+    let (usdc, _, _) = create_usdc(&env, &admin);
+
+    client.init(&admin, &usdc);
+    client.set_admin(&admin, &new_admin);
+    client.claim_admin(&attacker);
+}
+
+#[test]
+#[should_panic(expected = "no pending admin")]
+fn claim_admin_no_pending_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (_, client) = create_pool(&env);
+    let (usdc, _, _) = create_usdc(&env, &admin);
+
+    client.init(&admin, &usdc);
+    client.claim_admin(&admin);
+}
+
+#[test]
+fn admin_transfer_emits_events() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let (_, client) = create_pool(&env);
+    let (usdc, _, _) = create_usdc(&env, &admin);
+
+    client.init(&admin, &usdc);
+    
+    // Step 1 event
+    client.set_admin(&admin, &new_admin);
+    let events = env.events().all();
+    let transfer_started = events.last().unwrap();
+    assert_eq!(transfer_started.1.get(0).unwrap(), Symbol::new(&env, "admin_transfer_started").try_into_val(&env).unwrap());
+
+    // Step 2 event
+    client.claim_admin(&new_admin);
+    let events = env.events().all();
+    let transfer_completed = events.last().unwrap();
+    assert_eq!(transfer_completed.1.get(0).unwrap(), Symbol::new(&env, "admin_transfer_completed").try_into_val(&env).unwrap());
 }
 
 #[test]
@@ -255,6 +315,7 @@ fn full_lifecycle() {
     client.receive_payment(&admin, &100, &true);
 
     client.set_admin(&admin, &new_admin);
+    client.claim_admin(&new_admin);
     assert_eq!(client.get_admin(), new_admin);
 
     client.distribute(&new_admin, &developer, &100);
@@ -316,6 +377,7 @@ fn batch_distribute_success() {
 
 //     // Set admin
 //     client.set_admin(&admin, &new_admin);
+//     client.claim_admin(&new_admin);
 //     assert_eq!(client.get_admin(), new_admin);
 
 //     // New admin can distribute
