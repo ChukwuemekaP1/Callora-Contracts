@@ -74,9 +74,12 @@ impl RevenuePool {
         inst.set(&Symbol::new(&env, ADMIN_KEY), &new_admin);
     }
 
-    /// Placeholder: record that payment was received (e.g. from vault).
+    /// **Note**: This function is an **event-only helper**. It is **not** a substitute
+    /// for real token settlement and does **not** move any tokens. It exists purely
+    /// for event emission / indexer alignment when configured.
     /// In practice, USDC is received when the vault (or any address) transfers tokens
-    /// to this contract's address; no separate "receive" call is required.
+    /// to this contract's address; no separate "receive_payment" call is required
+    /// for the transfer to succeed.
     ///
     /// This function can be used to emit an event for indexers when the backend
     /// wants to log that a payment was credited from the vault.
@@ -88,7 +91,7 @@ impl RevenuePool {
     /// * `from_vault` - Optional; true if the source was the vault.
     ///
     /// # Panics
-    /// * If the caller does not have the correct authorization.
+    /// * If the caller is not the current admin (`"unauthorized: caller is not admin"`).
     ///
     /// # Events
     /// Emits a `receive_payment` event with `caller` as a topic, and a tuple of `(amount, from_vault)` as data.
@@ -227,3 +230,6 @@ impl RevenuePool {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod test_balance;
