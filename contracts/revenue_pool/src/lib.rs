@@ -228,7 +228,9 @@ impl RevenuePool {
             if amount <= 0 {
                 panic!("{}", ERR_AMOUNT_NOT_POSITIVE);
             }
-            total_amount += amount;
+            total_amount = total_amount
+                .checked_add(amount)
+                .unwrap_or_else(|| panic!("total overflow"));
         }
 
         let usdc_address: Address = env
