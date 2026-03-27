@@ -37,9 +37,13 @@ pub struct BalanceCreditedEvent {
     pub new_balance: i128,
 }
 
+/// Storage key for the registered vault address.
 const VAULT_KEY: &str = "vault";
+/// Storage key for the admin address.
 const ADMIN_KEY: &str = "admin";
+const PENDING_ADMIN_KEY: &str = "pending_admin";
 const DEVELOPER_BALANCES_KEY: &str = "developer_balances";
+/// Storage key for the global pool state.
 const GLOBAL_POOL_KEY: &str = "global_pool";
 
 #[contract]
@@ -47,7 +51,13 @@ pub struct CalloraSettlement;
 
 #[contractimpl]
 impl CalloraSettlement {
-    /// Initialize the settlement contract with admin and vault address
+    /// Initialize the settlement contract with admin and vault address.
+    ///
+    /// Persists admin + registered vault, initializes an empty developer balance map,
+    /// and stores a timestamped global pool.
+    ///
+    /// # Panics
+    /// Panics if the contract is already initialized.
     pub fn init(env: Env, admin: Address, vault_address: Address) {
         let inst = env.storage().instance();
         if inst.has(&Symbol::new(&env, ADMIN_KEY)) {
@@ -165,6 +175,9 @@ impl CalloraSettlement {
 
     /// Get developer balance
     pub fn get_developer_balance(env: Env, developer: Address) -> i128 {
+        if !env.storage().instance().has(&Symbol::new(&env, ADMIN_KEY)) {
+            panic!("settlement contract not initialized");
+        }
         let inst = env.storage().instance();
         let balances: Map<Address, i128> = inst
             .get(&Symbol::new(&env, DEVELOPER_BALANCES_KEY))
@@ -174,6 +187,9 @@ impl CalloraSettlement {
 
     /// Get all developer balances (for admin use)
     pub fn get_all_developer_balances(env: Env) -> Vec<DeveloperBalance> {
+        if !env.storage().instance().has(&Symbol::new(&env, ADMIN_KEY)) {
+            panic!("settlement contract not initialized");
+        }
         let inst = env.storage().instance();
         let balances: Map<Address, i128> = inst
             .get(&Symbol::new(&env, DEVELOPER_BALANCES_KEY))
@@ -185,7 +201,7 @@ impl CalloraSettlement {
         result
     }
 
-    /// Update admin address (admin only)
+    /// Nominate a new admin (admin only)
     pub fn set_admin(env: Env, caller: Address, new_admin: Address) {
         caller.require_auth();
         let current_admin = Self::get_admin(env.clone());
@@ -194,7 +210,34 @@ impl CalloraSettlement {
         }
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, ADMIN_KEY), &new_admin);
+            .set(&Symbol::new(&env, PENDING_ADMIN_KEY), &new_admin);
+
+        env.events().publish(
+            (
+                Symbol::new(&env, "admin_nominated"),
+                current_admin,
+                new_admin,
+            ),
+            (),
+        );
+    }
+
+    /// Accept the admin role (pending admin only)
+    pub fn accept_admin(env: Env) {
+        let inst = env.storage().instance();
+        let pending: Address = inst
+            .get(&Symbol::new(&env, PENDING_ADMIN_KEY))
+            .expect("no admin transfer pending");
+        pending.require_auth();
+
+        let current = Self::get_admin(env.clone());
+        inst.set(&Symbol::new(&env, ADMIN_KEY), &pending);
+        inst.remove(&Symbol::new(&env, PENDING_ADMIN_KEY));
+
+        env.events().publish(
+            (Symbol::new(&env, "admin_accepted"), current, pending),
+            (),
+        );
     }
 
     /// Update vault address (admin only)
@@ -221,3 +264,6 @@ impl CalloraSettlement {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod test_views;
