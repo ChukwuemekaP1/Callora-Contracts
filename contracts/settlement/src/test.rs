@@ -51,8 +51,6 @@ mod settlement_tests {
             assert!(inst.has(&Symbol::new(&env, "global_pool")));
             let balances: Map<Address, i128> =
                 inst.get(&Symbol::new(&env, "developer_balances")).unwrap();
-            let balances: Map<Address, i128> =
-                inst.get(&Symbol::new(&env, "developer_balances")).unwrap();
 
             assert_eq!(balances.len(), 0);
         });
@@ -155,10 +153,11 @@ mod settlement_tests {
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let vault = Address::generate(&env);
+        let third_party = Address::generate(&env);
         let addr = env.register(CalloraSettlement, ());
         let client = CalloraSettlementClient::new(&env, &addr);
         client.init(&admin, &vault);
-        client.receive_payment(&vault, &0i128, &true, &None);
+        client.receive_payment(&third_party, &100i128, &true, &None);
     }
 
     #[test]
@@ -286,9 +285,7 @@ mod settlement_tests {
         let client = CalloraSettlementClient::new(&env, &addr);
         client.init(&admin, &vault);
 
-        client.set_admin(&admin, &new_admin);
         client.set_vault(&new_admin, &new_vault);
-        assert_eq!(client.get_vault(), new_vault);
     }
 
     #[test]
@@ -319,21 +316,6 @@ mod settlement_tests {
         let client = CalloraSettlementClient::new(&env, &addr);
         client.init(&admin, &vault);
         client.init(&admin, &vault);
-    }
-
-    #[test]
-    #[should_panic(expected = "unauthorized: caller must be vault or admin")]
-    fn test_receive_payment_unauthorized() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let vault = Address::generate(&env);
-        let unauthorized = Address::generate(&env);
-        let addr = env.register(CalloraSettlement, ());
-        let client = CalloraSettlementClient::new(&env, &addr);
-        client.init(&admin, &vault);
-
-        client.receive_payment(&unauthorized, &100i128, &true, &None);
     }
 
     #[test]

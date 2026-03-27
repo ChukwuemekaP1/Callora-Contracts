@@ -1543,7 +1543,6 @@ fn init_with_revenue_pool_stores_address() {
         &Some(500),
         &None,
         &None,
-        &None,
         &Some(revenue_pool.clone()),
         &None,
     );

@@ -74,6 +74,7 @@ pub enum StorageKey {
     Settlement,
     RevenuePool,
     MaxDeduct,
+    Paused,
     Metadata(String),
     PendingOwner,
     PendingAdmin,
@@ -83,6 +84,8 @@ pub enum StorageKey {
 
 /// Default maximum single deduct amount when not set at init (no cap).
 pub const DEFAULT_MAX_DEDUCT: i128 = i128::MAX;
+/// Maximum number of items allowed in a single batch_deduct call.
+pub const MAX_BATCH_SIZE: u32 = 50;
 
 /// Maximum length for offering metadata (e.g. IPFS CID or URI).
 pub const MAX_METADATA_LEN: u32 = 256;
