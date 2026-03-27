@@ -4,7 +4,7 @@ mod settlement_tests {
 
     use crate::{CalloraSettlement, CalloraSettlementClient};
     use soroban_sdk::testutils::{Address as _, Ledger as _};
-    use soroban_sdk::{Address, Env};
+    use soroban_sdk::{Address, Env, Map, Symbol};
     use std::any::Any;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -42,6 +42,19 @@ mod settlement_tests {
         let client = CalloraSettlementClient::new(&env, &addr);
 
         client.init(&admin, &vault);
+
+        env.as_contract(&addr, || {
+            let inst = env.storage().instance();
+            assert!(inst.has(&Symbol::new(&env, "admin")));
+            assert!(inst.has(&Symbol::new(&env, "vault")));
+            assert!(inst.has(&Symbol::new(&env, "developer_balances")));
+            assert!(inst.has(&Symbol::new(&env, "global_pool")));
+
+            let balances: Map<Address, i128> = inst
+                .get(&Symbol::new(&env, "developer_balances"))
+                .unwrap();
+            assert_eq!(balances.len(), 0);
+        });
 
         assert_eq!(client.get_admin(), admin);
         assert_eq!(client.get_vault(), vault);

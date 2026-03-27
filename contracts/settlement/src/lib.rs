@@ -56,6 +56,12 @@ impl CalloraSettlement {
     /// Persists admin + registered vault, initializes an empty developer balance map,
     /// and stores a timestamped global pool.
     ///
+    /// Storage keys written:
+    /// - `admin`
+    /// - `vault`
+    /// - `developer_balances`
+    /// - `global_pool`
+    ///
     /// # Panics
     /// Panics if the contract is already initialized.
     pub fn init(env: Env, admin: Address, vault_address: Address) {
