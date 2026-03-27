@@ -1465,7 +1465,8 @@ fn init_with_revenue_pool_stores_address() {
     client.init(
         &owner,
         &usdc,
-        &Some(500), &None,
+        &Some(500),
+        &None,
         &None,
         &None,
         &Some(revenue_pool.clone()),
