@@ -151,6 +151,14 @@ impl RevenuePool {
         );
     }
 
+    fn validate_recipient(recipient: &Address, contract_self: &Address) {
+        // Rule 1 — no self-distributions (the contract sending to itself is almost
+        // certainly a logic bug; if you want to "reclaim" funds use a dedicated fn).
+        if recipient == contract_self {
+            panic!("invalid recipient: cannot distribute to the contract itself");
+        }
+    }
+
     /// Distribute USDC from this contract to a developer wallet.
     ///
     /// Only the admin may call. Transfers USDC from this contract to `to`.
@@ -187,6 +195,15 @@ impl RevenuePool {
         let usdc = token::Client::new(&env, &usdc_address);
 
         let contract_address = env.current_contract_address();
+        Self::validate_recipient(&to, &contract_address);
+
+        let _ = usdc.try_balance(&to).unwrap_or_else(|_| {
+            panic!(
+                "invalid recipient: account does not exist \
+                                      or has no USDC trustline"
+            )
+        });
+
         if usdc.balance(&contract_address) < amount {
             panic!("{}", ERR_INSUFFICIENT_BALANCE);
         }
@@ -241,12 +258,14 @@ impl RevenuePool {
         let usdc = token::Client::new(&env, &usdc_address);
 
         let contract_address = env.current_contract_address();
+
         if usdc.balance(&contract_address) < total_amount {
             panic!("{}", ERR_INSUFFICIENT_BALANCE);
         }
 
         for payment in payments.iter() {
             let (to, amount) = payment;
+            Self::validate_recipient(&to, &contract_address);
             usdc.transfer(&contract_address, &to, &amount);
             env.events()
                 .publish((Symbol::new(&env, "batch_distribute"), to), amount);
