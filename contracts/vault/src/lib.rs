@@ -53,6 +53,9 @@ pub struct VaultMeta {
 #[contracttype]
 pub enum StorageKey {
     Meta,
+    /// Allowed depositors list: Vec<Address> with stable ordering.
+    /// Unlike Maps, Vec maintains insertion order, making iteration predictable and stable.
+    /// Used to store addresses allowed to deposit funds on behalf of the vault owner.
     AllowedDepositors,
     Admin,
     UsdcToken,
@@ -219,6 +222,21 @@ impl CalloraVault {
 
     /// Sets whether an address is allowed to deposit into the vault.
     /// Can only be called by the Owner.
+    ///
+    /// # Storage: Vec<Address> Collection
+    /// The allowed depositors list is stored as a Vec<Address>, which maintains **stable insertion order**.
+    /// Unlike Maps, Vec iteration is deterministic and predictable.
+    ///
+    /// # Arguments
+    /// * `depositor` - `Some(Address)` to add depositor, `None` to clear all allowed depositors
+    ///
+    /// # Iteration Characteristics
+    /// - Storage: Vec<Address> with stable ordering (insertion order preserved)
+    /// - Lookup: Linear O(n) scan to check membership (acceptable for small lists)
+    /// - Update: Append-only for new depositors; full clear if None
+    /// - Order: Predictable; depositors added in sequence maintain order
+    ///
+    /// Safe for all use cases; Vec ordering is stable and reliable.
     pub fn set_allowed_depositor(env: Env, caller: Address, depositor: Option<Address>) {
         caller.require_auth();
         Self::require_owner(env.clone(), caller.clone());

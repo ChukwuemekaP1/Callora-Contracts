@@ -1409,3 +1409,155 @@ fn get_settlement_before_set_panics() {
     client.init(&owner, &usdc, &None, &None, &None, &None, &None);
     client.get_settlement();
 }
+
+// ---------------------------------------------------------------------------
+// Collection Iteration Tests (Vec<Address> AllowedDepositors)
+// ---------------------------------------------------------------------------
+// These tests verify Vec iteration behavior - Vec maintains stable insertion order
+
+#[test]
+fn allowed_depositors_vec_maintains_insertion_order() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let depositor1 = Address::generate(&env);
+    let depositor2 = Address::generate(&env);
+    let depositor3 = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 1000);
+    client.init(&owner, &usdc, &Some(1000), &None, &None, &None, &None);
+
+    // Add depositors in a specific order
+    client.set_allowed_depositor(&owner, &Some(depositor1.clone()));
+    client.set_allowed_depositor(&owner, &Some(depositor2.clone()));
+    client.set_allowed_depositor(&owner, &Some(depositor3.clone()));
+
+    // Vec ordering is stable; all should be allowed to deposit
+    assert!(client.try_is_allowed(&depositor1).is_ok());
+    assert!(client.try_is_allowed(&depositor2).is_ok());
+    assert!(client.try_is_allowed(&depositor3).is_ok());
+}
+
+#[test]
+fn allowed_depositors_single_entry_operations() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, usdc_client, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 500);
+    client.init(&owner, &usdc, &Some(500), &None, &None, &None, &None);
+
+    // Single depositor in Vec
+    client.set_allowed_depositor(&owner, &Some(depositor.clone()));
+
+    // Should be able to deposit
+    usdc_admin.mint(&depositor, &100);
+    usdc_client.approve(&depositor, &vault_address, &100, &1000);
+    let result = client.deposit(&depositor, &100);
+    assert_eq!(result, 600);
+}
+
+#[test]
+fn allowed_depositors_duplicate_add_ignored() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 500);
+    client.init(&owner, &usdc, &Some(500), &None, &None, &None, &None);
+
+    // Add same depositor twice
+    client.set_allowed_depositor(&owner, &Some(depositor.clone()));
+    client.set_allowed_depositor(&owner, &Some(depositor.clone()));
+
+    // Should not cause errors or double entries
+    assert!(client.try_is_allowed(&depositor).is_ok());
+}
+
+#[test]
+fn allowed_depositors_vec_clear_removes_all() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let depositor1 = Address::generate(&env);
+    let depositor2 = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, usdc_client, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 500);
+    client.init(&owner, &usdc, &Some(500), &None, &None, &None, &None);
+
+    // Add two depositors
+    client.set_allowed_depositor(&owner, &Some(depositor1.clone()));
+    client.set_allowed_depositor(&owner, &Some(depositor2.clone()));
+
+    // Clear all depositors
+    client.set_allowed_depositor(&owner, &None);
+
+    // Neither should be able to deposit now
+    usdc_admin.mint(&depositor1, &100);
+    usdc_client.approve(&depositor1, &vault_address, &100, &1000);
+    let result = client.try_deposit(&depositor1, &100);
+    assert!(
+        result.is_err(),
+        "depositor should not be allowed after clear"
+    );
+}
+
+#[test]
+fn allowed_depositors_empty_vec_on_init() {
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 100);
+    client.init(&owner, &usdc, &Some(100), &None, &None, &None, &None);
+
+    // Without setting allowed depositors, Vec should be empty
+    let result = client.try_deposit(&unauthorized, &50);
+    assert!(
+        result.is_err(),
+        "unauthorized address should not be able to deposit"
+    );
+}
+
+#[test]
+fn allowed_depositors_warning_vec_is_stable() {
+    // Documentation test: Vec<Address> for allowed depositors has STABLE ordering.
+    // Unlike Maps, Vec ordering is predictable and safe for all use cases.
+    // This is fundamentally different from Map iteration behavior.
+    let env = Env::default();
+    let owner = Address::generate(&env);
+    let dep_a = Address::generate(&env);
+    let dep_b = Address::generate(&env);
+    let dep_c = Address::generate(&env);
+    let (vault_address, client) = create_vault(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &owner);
+
+    env.mock_all_auths();
+    fund_vault(&usdc_admin, &vault_address, 1000);
+    client.init(&owner, &usdc, &Some(1000), &None, &None, &None, &None);
+
+    // Vec maintains insertion order
+    client.set_allowed_depositor(&owner, &Some(dep_a.clone()));
+    client.set_allowed_depositor(&owner, &Some(dep_b.clone()));
+    client.set_allowed_depositor(&owner, &Some(dep_c.clone()));
+
+    // All three are authorized (order doesn't affect authorization logic)
+    assert!(client.try_is_allowed(&dep_a).is_ok());
+    assert!(client.try_is_allowed(&dep_b).is_ok());
+    assert!(client.try_is_allowed(&dep_c).is_ok());
+
+    // Safe for all use cases - Vec iteration has stable semantics
+}

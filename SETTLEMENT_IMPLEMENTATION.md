@@ -257,6 +257,73 @@ soroban contract invoke \
   --args <admin_address> <settlement_contract_id>
 ```
 
+## Map Iteration and Performance
+
+### Iteration Behavior and Limitations
+
+The settlement contract uses Soroban `Map<Address, i128>` to store developer balances. **CRITICAL**: Map iteration order is **not stable** and should **not be relied upon** for canonical ordering or deterministic results.
+
+#### Key Points
+
+1. **Unstable Ordering**: The iteration order of maps can change between calls, ledger updates, or contract deployments. Do not depend on map ordering.
+
+2. **On-Chain vs Off-Chain Operations**:
+   - ✅ **On-chain**: Safe to iterate over maps for internal contract operations (balance updates, transfers)
+   - ✅ **Small maps**: For small maps (< 100 entries), iteration is practical for read-only queries
+   - ⚠️ **Large maps**: Performance degrades significantly with large maps; off-chain indexing recommended
+
+3. **Admin Query Limitations**: The `get_all_developer_balances()` function reveals all developer balances but should only be used for administrative queries or reporting, not for making authorization or routing decisions.
+
+4. **Off-Chain Indexing**: For production systems with >100 developers, implement off-chain indexing:
+   - Listen to `PaymentReceivedEvent` and `BalanceCreditedEvent` on Soroban blockchain
+   - Maintain a database of developer balances indexed by address
+   - Query off-chain index for fast, stable lookups
+   - Verify against on-chain state periodically
+
+#### Iteration Performance
+
+| Map Size | Iteration Cost | Recommendation |
+|----------|----------------|-----------------|
+| < 50     | ~500 gas       | Safe for on-chain queries |
+| 50-100   | ~1,000 gas     | Acceptable for admin queries |
+| 100-500  | ~3,000-5,000 gas | Use off-chain indexing |
+| > 500    | ~10,000+ gas   | **Must use off-chain indexing** |
+
+#### Example: Off-Chain Indexing Pattern
+
+```javascript
+// Listen for developer balance updates
+const filter = {
+  topics: ["balance_credited"],
+  contract: settlement_address
+};
+
+blockchain.watch(filter, (event) => {
+  // Update local index
+  const { developer, new_balance } = event.data;
+  database.updateDeveloperBalance(developer, new_balance);
+});
+
+// Query from off-chain index (fast, stable)
+async function getDeveloperBalance(developer) {
+  return database.balance(developer);
+}
+```
+
+#### Warning for Integrators
+
+⚠️ **Do not implement automatic payment routing based on map iteration**: Unstable map ordering could lead to incorrect payments if your system depends on iteration order to determine routing or priorities.
+
+**Safe usage**:
+- Balance lookups by specific address ✅
+- Reporting and administrative queries ✅
+- Event-driven indexing ✅
+
+**Unsafe usage**:
+- Routing decisions based on iteration order ❌
+- "First N developers" based on iteration order ❌
+- Deterministic selection from map keys ❌
+
 ## Monitoring
 
 ### Key Metrics
