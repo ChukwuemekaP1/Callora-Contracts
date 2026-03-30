@@ -328,3 +328,83 @@ fn require_auth_receive_payment_fails_without_auth() {
     let result = client.try_receive_payment(&attacker, &100, &false);
     assert!(result.is_err(), "receive_payment must require auth");
 }
+
+#[test]
+fn set_admin_non_admin_caller_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let (_, client) = create_pool(&env);
+    let (usdc, _, _) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    let result = client.try_set_admin(&attacker, &new_admin);
+    assert!(result.is_err(), "non-admin cannot call set_admin");
+}
+#[test]
+fn claim_admin_wrong_pending_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let (_, client) = create_pool(&env);
+    let (usdc, _, _) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    client.set_admin(&admin, &new_admin);
+    let result = client.try_claim_admin(&attacker);
+    assert!(result.is_err(), "wrong pending admin cannot claim");
+}
+#[test]
+fn receive_payment_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (pool_addr, client) = create_pool(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    fund_pool(&usdc_admin, &pool_addr, 500);
+    client.receive_payment(&admin, &100, &true);
+    let events = env.events().all();
+    assert!(!events.is_empty());
+}
+#[test]
+fn distribute_self_recipient_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let (pool_addr, client) = create_pool(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    fund_pool(&usdc_admin, &pool_addr, 500);
+    let result = client.try_distribute(&admin, &pool_addr, &100);
+    assert!(result.is_err(), "cannot distribute to contract itself");
+}
+#[test]
+fn distribute_non_admin_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let (pool_addr, client) = create_pool(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    fund_pool(&usdc_admin, &pool_addr, 500);
+    let result = client.try_distribute(&attacker, &recipient, &100);
+    assert!(result.is_err(), "non-admin cannot distribute");
+}
+#[test]
+fn distribute_zero_amount_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let (pool_addr, client) = create_pool(&env);
+    let (usdc, _, usdc_admin) = create_usdc(&env, &admin);
+    client.init(&admin, &usdc);
+    fund_pool(&usdc_admin, &pool_addr, 500);
+    let result = client.try_distribute(&admin, &recipient, &0);
+    assert!(result.is_err(), "zero amount distribute must fail");
+}
