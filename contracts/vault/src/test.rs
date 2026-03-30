@@ -2290,5 +2290,8 @@ fn require_owner_rejects_non_owner_via_assert() {
     fund_vault(&usdc_admin, &vault_address, 100);
     client.init(&owner, &usdc, &Some(100), &None, &None, &None, &None);
     let result = client.try_require_owner(&attacker);
-    assert!(result.is_err(), "require_owner rejects non-owner via assert");
+    assert!(
+        result.is_err(),
+        "require_owner rejects non-owner via assert"
+    );
 }

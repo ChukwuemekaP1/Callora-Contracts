@@ -13,7 +13,7 @@ mod settlement_tests {
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let vault = Address::generate(&env);
-                let addr = env.register(CalloraSettlement, ());
+        let addr = env.register(CalloraSettlement, ());
         let client = CalloraSettlementClient::new(&env, &addr);
         client.init(&admin, &vault);
         let third_party = Address::generate(&env);
@@ -153,7 +153,7 @@ mod settlement_tests {
         env.mock_all_auths();
         let admin = Address::generate(&env);
         let vault = Address::generate(&env);
-                let addr = env.register(CalloraSettlement, ());
+        let addr = env.register(CalloraSettlement, ());
         let client = CalloraSettlementClient::new(&env, &addr);
         client.init(&admin, &vault);
         client.receive_payment(&admin, &100i128, &true, &None);
@@ -915,7 +915,6 @@ mod settlement_tests {
         assert_eq!(pool_after.total_balance, 1500i128);
     }
 
-
     // --- require_auth audit tests (Issue #160) ---
     #[test]
     fn require_auth_set_admin_fails_without_auth() {
@@ -975,5 +974,4 @@ mod settlement_tests {
         client.init(&admin, &vault);
         assert_eq!(client.get_admin(), admin);
     }
-
 }
