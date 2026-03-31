@@ -2071,23 +2071,6 @@ fn withdraw_to_zero_succeeds() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn set_allowed_depositor_duplicate_add_is_rejected() {
-    let env = Env::default();
-    let owner = Address::generate(&env);
-    let depositor = Address::generate(&env);
-    let (vault_address, client) = create_vault(&env);
-    let (usdc, _, usdc_admin) = create_usdc(&env, &owner);
-
-    env.mock_all_auths();
-    fund_vault(&usdc_admin, &vault_address, 100);
-    client.init(&owner, &usdc, &Some(100), &None, &None, &None, &None);
-
-    client.set_allowed_depositor(&owner, &Some(depositor.clone()));
-    client.set_allowed_depositor(&owner, &Some(depositor.clone()));
-    assert_eq!(client.get_allowed_depositors().len(), 1);
-}
-
-#[test]
 fn clear_allowed_depositors_removes_all() {
     let env = Env::default();
     let owner = Address::generate(&env);

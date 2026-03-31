@@ -1,3 +1,4 @@
+//! # Callora Vault Contract  deposit/withdraw/deduct/distribute with pause circuit-breaker.
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, token, Address, Env, String, Symbol, Vec};
 
@@ -93,6 +94,7 @@ impl CalloraVault {
             .publish((Symbol::new(&env, "init"), owner.clone()), balance);
         meta
     }
+
     pub fn is_authorized_depositor(env: Env, caller: Address) -> bool {
         let meta = Self::get_meta(env.clone());
         if caller == meta.owner {
@@ -105,12 +107,14 @@ impl CalloraVault {
             .unwrap_or(Vec::new(&env));
         list.contains(&caller)
     }
+
     pub fn get_admin(env: Env) -> Address {
         env.storage()
             .instance()
             .get(&StorageKey::Admin)
             .expect("vault not initialized")
     }
+
     pub fn set_admin(env: Env, caller: Address, new_admin: Address) {
         caller.require_auth();
         let cur = Self::get_admin(env.clone());
@@ -123,6 +127,7 @@ impl CalloraVault {
         env.events()
             .publish((Symbol::new(&env, "admin_nominated"), cur, new_admin), ());
     }
+
     pub fn accept_admin(env: Env) {
         let pending: Address = env
             .storage()
@@ -136,37 +141,43 @@ impl CalloraVault {
         env.events()
             .publish((Symbol::new(&env, "admin_accepted"), cur, pending), ());
     }
+
     pub fn require_owner(env: Env, caller: Address) {
         let meta = Self::get_meta(env.clone());
         assert!(caller == meta.owner, "unauthorized: owner only");
     }
+
     pub fn distribute(env: Env, caller: Address, to: Address, amount: i128) {
         caller.require_auth();
-        if caller != Self::get_admin(env.clone()) {
+        let admin = Self::get_admin(env.clone());
+        if caller != admin {
             panic!("unauthorized: caller is not admin");
         }
         if amount <= 0 {
             panic!("amount must be positive");
         }
-        let ua: Address = env
+        let usdc_addr: Address = env
             .storage()
             .instance()
             .get(&StorageKey::UsdcToken)
             .expect("vault not initialized");
-        let usdc = token::Client::new(&env, &ua);
-        if usdc.balance(&env.current_contract_address()) < amount {
+        let usdc = token::Client::new(&env, &usdc_addr);
+        let vb = usdc.balance(&env.current_contract_address());
+        if vb < amount {
             panic!("insufficient USDC balance");
         }
         usdc.transfer(&env.current_contract_address(), &to, &amount);
         env.events()
             .publish((Symbol::new(&env, "distribute"), to), amount);
     }
+
     pub fn get_meta(env: Env) -> VaultMeta {
         env.storage()
             .instance()
             .get(&StorageKey::Meta)
             .unwrap_or_else(|| panic!("vault not initialized"))
     }
+
     pub fn set_allowed_depositor(env: Env, caller: Address, depositor: Option<Address>) {
         caller.require_auth();
         Self::require_owner(env.clone(), caller);
@@ -182,10 +193,10 @@ impl CalloraVault {
                         .instance()
                         .set(&StorageKey::AllowedDepositors, &d);
                     list.push_back(d);
-                    env.storage()
-                        .instance()
-                        .set(&StorageKey::DepositorList, &list);
                 }
+                env.storage()
+                    .instance()
+                    .set(&StorageKey::DepositorList, &list);
             }
             None => {
                 env.storage()
@@ -197,6 +208,7 @@ impl CalloraVault {
             }
         }
     }
+
     pub fn clear_allowed_depositors(env: Env, caller: Address) {
         caller.require_auth();
         Self::require_owner(env.clone(), caller);
@@ -207,12 +219,14 @@ impl CalloraVault {
             .instance()
             .set(&StorageKey::DepositorList, &Vec::<Address>::new(&env));
     }
+
     pub fn get_allowed_depositors(env: Env) -> Vec<Address> {
         env.storage()
             .instance()
             .get(&StorageKey::DepositorList)
             .unwrap_or(Vec::new(&env))
     }
+
     pub fn set_authorized_caller(env: Env, caller: Address) {
         let mut meta = Self::get_meta(env.clone());
         meta.owner.require_auth();
@@ -223,6 +237,7 @@ impl CalloraVault {
             caller,
         );
     }
+
     pub fn pause(env: Env, caller: Address) {
         caller.require_auth();
         Self::require_admin_or_owner(env.clone(), &caller);
@@ -231,6 +246,7 @@ impl CalloraVault {
         env.events()
             .publish((Symbol::new(&env, "vault_paused"), caller), ());
     }
+
     pub fn unpause(env: Env, caller: Address) {
         caller.require_auth();
         Self::require_admin_or_owner(env.clone(), &caller);
@@ -239,18 +255,21 @@ impl CalloraVault {
         env.events()
             .publish((Symbol::new(&env, "vault_unpaused"), caller), ());
     }
+
     pub fn is_paused(env: Env) -> bool {
         env.storage()
             .instance()
             .get(&StorageKey::Paused)
             .unwrap_or(false)
     }
+
     pub fn get_max_deduct(env: Env) -> i128 {
         env.storage()
             .instance()
             .get(&StorageKey::MaxDeduct)
             .unwrap_or(DEFAULT_MAX_DEDUCT)
     }
+
     pub fn deposit(env: Env, caller: Address, amount: i128) -> i128 {
         caller.require_auth();
         Self::require_not_paused(env.clone());
@@ -266,12 +285,13 @@ impl CalloraVault {
             amount,
             meta.min_deposit
         );
-        let ua: Address = env
+        let usdc_addr: Address = env
             .storage()
             .instance()
             .get(&StorageKey::UsdcToken)
             .expect("vault not initialized");
-        token::Client::new(&env, &ua).transfer(&caller, &env.current_contract_address(), &amount);
+        let usdc = token::Client::new(&env, &usdc_addr);
+        usdc.transfer(&caller, &env.current_contract_address(), &amount);
         let mut meta = Self::get_meta(env.clone());
         meta.balance = meta
             .balance
@@ -284,6 +304,7 @@ impl CalloraVault {
         );
         meta.balance
     }
+
     pub fn deduct(env: Env, caller: Address, amount: i128, request_id: Option<Symbol>) -> i128 {
         caller.require_auth();
         Self::require_not_paused(env.clone());
@@ -304,10 +325,7 @@ impl CalloraVault {
         if let Some(s) = inst.get::<StorageKey, Address>(&StorageKey::Settlement) {
             let ut: Address = inst.get(&StorageKey::UsdcToken).unwrap();
             Self::transfer_funds(&env, &ut, &s, amount);
-        } else if inst
-            .get::<StorageKey, Address>(&StorageKey::RevenuePool)
-            .is_some()
-        {
+        } else if inst.get::<StorageKey, Address>(&StorageKey::RevenuePool).is_some() {
             Self::transfer_to_revenue_pool(env.clone(), amount);
         }
         let rid = request_id.unwrap_or(Symbol::new(&env, ""));
@@ -317,6 +335,7 @@ impl CalloraVault {
         );
         meta.balance
     }
+
     pub fn batch_deduct(env: Env, caller: Address, items: Vec<DeductItem>) -> i128 {
         caller.require_auth();
         let n = items.len();
@@ -353,17 +372,16 @@ impl CalloraVault {
         if let Some(s) = inst.get::<StorageKey, Address>(&StorageKey::Settlement) {
             let ut: Address = inst.get(&StorageKey::UsdcToken).unwrap();
             Self::transfer_funds(&env, &ut, &s, total);
-        } else if inst
-            .get::<StorageKey, Address>(&StorageKey::RevenuePool)
-            .is_some()
-        {
+        } else if inst.get::<StorageKey, Address>(&StorageKey::RevenuePool).is_some() {
             Self::transfer_to_revenue_pool(env.clone(), total);
         }
         meta.balance
     }
+
     pub fn balance(env: Env) -> i128 {
         Self::get_meta(env).balance
     }
+
     pub fn transfer_ownership(env: Env, new_owner: Address) {
         let meta = Self::get_meta(env.clone());
         meta.owner.require_auth();
@@ -383,6 +401,7 @@ impl CalloraVault {
             (),
         );
     }
+
     pub fn accept_ownership(env: Env) {
         let pending: Address = env
             .storage()
@@ -400,6 +419,7 @@ impl CalloraVault {
             (),
         );
     }
+
     pub fn withdraw(env: Env, amount: i128) -> i128 {
         let mut meta = Self::get_meta(env.clone());
         meta.owner.require_auth();
@@ -410,11 +430,8 @@ impl CalloraVault {
             .instance()
             .get(&StorageKey::UsdcToken)
             .expect("vault not initialized");
-        token::Client::new(&env, &ua).transfer(
-            &env.current_contract_address(),
-            &meta.owner,
-            &amount,
-        );
+        let usdc = token::Client::new(&env, &ua);
+        usdc.transfer(&env.current_contract_address(), &meta.owner, &amount);
         meta.balance = meta.balance.checked_sub(amount).unwrap();
         env.storage().instance().set(&StorageKey::Meta, &meta);
         env.events().publish(
@@ -423,6 +440,7 @@ impl CalloraVault {
         );
         meta.balance
     }
+
     pub fn withdraw_to(env: Env, to: Address, amount: i128) -> i128 {
         let mut meta = Self::get_meta(env.clone());
         meta.owner.require_auth();
@@ -433,7 +451,8 @@ impl CalloraVault {
             .instance()
             .get(&StorageKey::UsdcToken)
             .expect("vault not initialized");
-        token::Client::new(&env, &ua).transfer(&env.current_contract_address(), &to, &amount);
+        let usdc = token::Client::new(&env, &ua);
+        usdc.transfer(&env.current_contract_address(), &to, &amount);
         meta.balance = meta.balance.checked_sub(amount).unwrap();
         env.storage().instance().set(&StorageKey::Meta, &meta);
         env.events().publish(
@@ -442,9 +461,11 @@ impl CalloraVault {
         );
         meta.balance
     }
+
     pub fn set_revenue_pool(env: Env, caller: Address, revenue_pool: Option<Address>) {
         caller.require_auth();
-        if caller != Self::get_admin(env.clone()) {
+        let admin = Self::get_admin(env.clone());
+        if caller != admin {
             panic!("unauthorized: caller is not admin");
         }
         match revenue_pool {
@@ -462,24 +483,29 @@ impl CalloraVault {
             }
         }
     }
+
     pub fn get_revenue_pool(env: Env) -> Option<Address> {
         env.storage().instance().get(&StorageKey::RevenuePool)
     }
+
     pub fn set_settlement(env: Env, caller: Address, settlement_address: Address) {
         caller.require_auth();
-        if caller != Self::get_admin(env.clone()) {
+        let admin = Self::get_admin(env.clone());
+        if caller != admin {
             panic!("unauthorized: caller is not admin");
         }
         env.storage()
             .instance()
             .set(&StorageKey::Settlement, &settlement_address);
     }
+
     pub fn get_settlement(env: Env) -> Address {
         env.storage()
             .instance()
             .get(&StorageKey::Settlement)
             .unwrap_or_else(|| panic!("settlement address not set"))
     }
+
     pub fn set_metadata(
         env: Env,
         caller: Address,
@@ -505,11 +531,13 @@ impl CalloraVault {
         );
         metadata
     }
+
     pub fn get_metadata(env: Env, offering_id: String) -> Option<String> {
         env.storage()
             .instance()
             .get(&StorageKey::Metadata(offering_id))
     }
+
     pub fn update_metadata(
         env: Env,
         caller: Address,
@@ -540,9 +568,11 @@ impl CalloraVault {
         );
         metadata
     }
+
     fn transfer_funds(env: &Env, usdc_token: &Address, to: &Address, amount: i128) {
         token::Client::new(env, usdc_token).transfer(&env.current_contract_address(), to, &amount);
     }
+
     fn transfer_to_revenue_pool(env: Env, amount: i128) {
         let inst = env.storage().instance();
         let rp: Address = inst
@@ -553,9 +583,11 @@ impl CalloraVault {
             .expect("vault not initialized");
         token::Client::new(&env, &ua).transfer(&env.current_contract_address(), &rp, &amount);
     }
+
     fn require_not_paused(env: Env) {
         assert!(!Self::is_paused(env), "vault is paused");
     }
+
     fn require_admin_or_owner(env: Env, caller: &Address) {
         let admin: Address = env
             .storage()
