@@ -10,11 +10,18 @@ pub struct DeveloperBalance {
     pub balance: i128,
 }
 
-/// Global pool balance tracking
+/// Global pool balance tracking.
+///
+/// `last_updated` is set to `env.ledger().timestamp()` on every
+/// `receive_payment` call that credits the pool (`to_pool = true`).
+/// It is also set at `init` time. It is **not** updated when payments
+/// are routed to individual developer balances.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlobalPool {
     pub total_balance: i128,
+    /// Ledger timestamp of the last pool credit. Useful for analytics
+    /// and staleness checks.
     pub last_updated: u64,
 }
 
