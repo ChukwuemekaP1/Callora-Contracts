@@ -1,4 +1,4 @@
-# Callora Contracts 
+# Callora Contracts
 
 Soroban smart contracts for the Callora API marketplace: prepaid vault (USDC) and balance deduction for pay-per-call settlement.
 
@@ -9,21 +9,83 @@ Soroban smart contracts for the Callora API marketplace: prepaid vault (USDC) an
 
 - **Rust** with **Soroban SDK** (Stellar)
 - Contract compiles to WebAssembly and deploys to Stellar/Soroban
-- Minimal WASM size (~17.5KB for vault)
+- Minimal WASM size (~17.5 KB for vault)
 
-## What’s included
+## What's included
 
 ### 1. `callora-vault`
 
-The primary storage and metering contract.
+The primary storage and metering contract. Holds USDC on behalf of API consumers and deducts balances on every metered call.
 
-- `init(owner, usdc_token, ..., authorized_caller, min_deposit, revenue_pool, max_deduct)` — Initialize with owner and optional configuration.
-- `deposit(caller, amount)` — Owner or allowed depositor increases ledger balance.
-- `deduct(caller, amount, request_id)` — Decrease balance for an API call; routes funds to settlement.
-- `batch_deduct(caller, items)` — Atomically process multiple deductions.
-- `set_allowed_depositor(caller, depositor)` — Owner-only; delegate deposit rights.
-- `set_authorized_caller(caller)` — Owner-only; set the address permitted to trigger deductions.
-- `get_price(api_id)` — returns `Option<i128>` with the configured price per call for `api_id`.
+**Initialization**
+- `init(owner, usdc_token, initial_balance, authorized_caller, min_deposit, revenue_pool, max_deduct)` — One-time setup; validates all parameters and verifies on-ledger USDC balance.
+
+**Deposits & withdrawals**
+- `deposit(caller, amount)` — Owner or allowed depositor transfers USDC into the vault.
+- `withdraw(amount)` — Owner withdraws USDC to their own address.
+- `withdraw_to(to, amount)` — Owner withdraws USDC to an arbitrary address.
+
+**Deductions**
+- `deduct(caller, amount, request_id)` — Decrease balance for one API call; routes funds to settlement or revenue pool.
+- `batch_deduct(caller, items)` — Atomically process up to 50 deductions; all-or-nothing.
+
+**Pricing**
+- `set_price(caller, api_id, price)` — Owner-only; configure the per-call price for `api_id`.
+- `get_price(api_id)` — Returns `Option<i128>` with the configured price.
+
+**Metadata**
+- `set_metadata(caller, offering_id, metadata)` — Owner-only; attach off-chain data (IPFS/URI) to an offering.
+- `update_metadata(caller, offering_id, metadata)` — Owner-only; replace existing metadata.
+- `get_metadata(offering_id)` — Returns `Option<String>` for the stored value.
+
+**Balance & configuration views**
+- `balance()` — Current tracked USDC balance.
+- `get_meta()` — Full `VaultMeta` struct (owner, balance, authorized caller, min deposit).
+- `get_max_deduct()` — Per-call deduction cap.
+
+**Routing configuration** *(admin-only)*
+- `set_settlement(caller, settlement_address)` / `get_settlement()` — Settlement contract address.
+- `set_revenue_pool(caller, revenue_pool)` / `get_revenue_pool()` — Revenue pool address.
+
+**Access control**
+- `set_admin(caller, new_admin)` / `accept_admin()` / `get_admin()` — Two-step admin transfer.
+- `transfer_ownership(new_owner)` / `accept_ownership()` — Two-step owner transfer.
+- `set_allowed_depositor(caller, depositor)` / `clear_allowed_depositors(caller)` / `get_allowed_depositors()` — Deposit allowlist.
+- `set_authorized_caller(caller)` — Owner-only; set who may call `deduct`.
+- `is_authorized_depositor(caller)` — Returns `bool`.
+
+**Circuit breaker**
+- `pause(caller)` / `unpause(caller)` / `is_paused()` — Admin or owner; blocks deposits and deductions.
+- `distribute(caller, to, amount)` — Admin-only; direct USDC transfer from vault.
+
+---
+
+### 2. `callora-revenue-pool`
+
+Simple distribution contract. Accumulates USDC from vault deductions and lets an admin send it to developers.
+
+- `init(admin, usdc_token)` — One-time setup; validates neither address is the contract itself.
+- `distribute(caller, to, amount)` — Admin sends USDC to a single recipient.
+- `batch_distribute(caller, payments)` — Atomically distribute to multiple recipients; pre-validates total balance.
+- `balance()` — Contract's current USDC balance.
+- `receive_payment(caller, amount, from_vault)` — Emits an indexer event; does not move tokens.
+- `get_admin()` / `set_admin(caller, new_admin)` / `claim_admin()` — Two-step admin transfer.
+
+---
+
+### 3. `callora-settlement`
+
+Advanced settlement with per-developer balance tracking. Receives USDC from the vault and credits either a global pool or individual developers.
+
+- `init(admin, vault_address)` — One-time setup; links to the vault.
+- `receive_payment(caller, amount, to_pool, developer)` — Credits global pool or a specific developer.
+- `get_developer_balance(developer)` — Tracked balance for one developer (`i128`).
+- `get_all_developer_balances()` — Returns a `Map<Address, i128>` of all recorded balances.
+- `get_global_pool()` — Returns `GlobalPool { total_balance, last_updated }`.
+- `get_admin()` / `set_admin(caller, new_admin)` / `accept_admin()` — Two-step admin transfer.
+- `get_vault()` / `set_vault(caller, new_vault)` — View or update the linked vault address (admin-only).
+
+---
 
 ## Architecture & Flow
 
@@ -43,36 +105,14 @@ sequenceDiagram
     Note over B,V: Metering & Deduction
     B->>V: deduct(caller, total_amount, request_id)
     V->>V: validate balance & auth
-    
+
     Note over V,S: Fund Movement
     V->>S: USDC Transfer (via token contract)
-    
+
     Note over S,D: Distribution
     S->>D: distribute(to, amount)
     D-->>S: Transaction Complete
 ```
-
-- `get_meta()` / `balance()` — View configuration and current ledger balance.
-- `set_metadata` / `get_metadata` — Attach off-chain metadata (IPFS/URI) to offerings.
-
-### 2. `callora-revenue-pool`
-
-A simple distribution contract for revenue.
-
-- `init(admin, usdc_token)` — Initialize with an admin and USDC token.
-- `distribute(caller, to, amount)` — Admin sends USDC from this contract to a developer.
-- `batch_distribute(caller, payments)` — Atomically distribute to multiple developers.
-- `receive_payment(caller, amount, from_vault)` — Log payment receipt for indexers.
-
-### 3. `callora-settlement`
-
-Advanced settlement with individual developer balance tracking.
-
-- `init(admin, vault_address)` — Link to the vault and set admin.
-- `receive_payment(caller, amount, to_pool, developer)` — Receive funds from vault; credit global pool or specific developer.
-- `get_developer_balance(developer)` — Check tracked balance for a specific developer.
-- `get_global_pool()` — View total accumulated pool balance.
-- `set_vault(caller, new_vault)` — Admin-only; update the linked vault address.
 
 ## Local setup
 
@@ -105,7 +145,7 @@ Use one branch per issue or feature. Run `cargo fmt --all`, `cargo clippy --all-
 
 ### Test coverage
 
-The project enforces a **minimum of 95% line coverage** on every push via GitHub Actions.
+The project enforces a **minimum of 95% line coverage** on every push via GitHub Actions (see [`.github/workflows/coverage.yml`](.github/workflows/coverage.yml)).
 
 ```bash
 # Run coverage locally
@@ -150,14 +190,12 @@ See [`docs/interfaces/README.md`](docs/interfaces/README.md) for the schema desc
 
 ## Security Notes
 
-- **Checked arithmetic**: All mutations use `checked_add` / `checked_sub`.
-- **Input validation**: Enforced `amount > 0` for all deposits and deductions.
-- **Overflow checks**: Enabled in both dev and release profiles.
+- **Checked arithmetic**: All balance mutations use `checked_add` / `checked_sub` with explicit panics.
+- **Input validation**: `amount > 0` enforced on all deposits and deductions.
+- **Overflow checks**: Enabled in both dev and release profiles (`Cargo.toml`).
 - **Role-Based Access**: Documented in [docs/ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md).
 
-## Security
-
-See [SECURITY.md](SECURITY.md) for the Vault Security Checklist and audit recommendations.
+See [SECURITY.md](SECURITY.md) for the full Vault Security Checklist and audit recommendations.
 
 ---
 
