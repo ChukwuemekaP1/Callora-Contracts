@@ -261,16 +261,6 @@ fn owner_can_deposit() {
     assert_eq!(new_balance, 200);
 
     let events = env.events().all();
-    std::println!("owner_can_deposit events len: {}", events.len());
-    for (i, e) in events.iter().enumerate() {
-        std::println!(
-            "Event[{}]: contract={:?}, topics={:?}, data={:?}",
-            i,
-            e.0,
-            e.1,
-            e.2
-        );
-    }
     let deposit_event = events
         .iter()
         .find(|e| {
@@ -285,6 +275,8 @@ fn owner_can_deposit() {
         })
         .expect("expected deposit event");
 
+    let topic1: Address = deposit_event.1.get(1).unwrap().into_val(&env);
+    assert_eq!(topic1, owner);
     let (amount, balance): (i128, i128) = deposit_event.2.into_val(&env);
     assert_eq!(amount, 200);
     assert_eq!(balance, 200);
@@ -724,10 +716,15 @@ fn deduct_event_no_request_id_uses_empty_symbol() {
     let ev = events.last().expect("expected deduct event");
 
     let topic0: Symbol = ev.1.get(0).unwrap().into_val(&env);
+    let topic1: Address = ev.1.get(1).unwrap().into_val(&env);
     let topic2: Symbol = ev.1.get(2).unwrap().into_val(&env);
 
     assert_eq!(topic0, Symbol::new(&env, "deduct"));
+    assert_eq!(topic1, caller);
     assert_eq!(topic2, Symbol::new(&env, ""));
+    let (emitted_amount, remaining): (i128, i128) = ev.2.into_val(&env);
+    assert_eq!(emitted_amount, 100);
+    assert_eq!(remaining, 200);
 }
 
 #[test]
