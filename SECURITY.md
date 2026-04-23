@@ -19,6 +19,9 @@ This document outlines security best practices and checklist items for Callora v
 
 > All balance mutations in `callora-vault` (`deposit`, `deduct`, `batch_deduct`, `withdraw`, `withdraw_to`) and `callora-revenue-pool` (`batch_distribute`) use `checked_add` / `checked_sub` and panic with a descriptive message on overflow. `callora-settlement` (`receive_payment`) does the same. The workspace `Cargo.toml` sets `overflow-checks = true` for both `dev` and `release` profiles, so even plain arithmetic would trap in debug builds — the explicit checked calls make the intent clear and guarantee the same behaviour in all build configurations.
 
+Additional hardening note:
+- Removed a duplicated `get_max_deduct` entrypoint declaration in `callora-vault` to avoid ambiguous review surfaces and keep ABI-facing code paths singular.
+
 ### Initialization / Re-initialization
 
 - [ ] `initialize` function protected against multiple calls (e.g., checking if admin key exists in `instance()` storage)
@@ -37,6 +40,44 @@ This document outlines security best practices and checklist items for Callora v
 - [x] Ownership transfer is two-step (optional but recommended)
 - [ ] Ownership transfer emits events
 - [ ] Renounce ownership reviewed and justified
+
+### Authorized Caller Role Management
+
+The vault exposes a dedicated `authorized_caller` role (stored in `VaultMeta`
+and settable via `set_authorized_caller`) that is permitted to invoke
+balance-mutating operations such as `deduct` and `batch_deduct`. This role is
+distinct from `owner` and `admin`, and reviewers should confirm the following
+controls are in place:
+
+- [x] `authorized_caller` is stored in `VaultMeta` under the `Meta` instance
+  storage key and is not duplicated in any other location
+- [x] Only the current `owner` can set or rotate `authorized_caller` via
+  `set_authorized_caller` (enforced by `meta.owner.require_auth()`)
+- [x] `set_authorized_caller` emits a `set_auth_caller` event with the owner
+  as topic and the new caller address as data, enabling off-chain monitoring
+  of role changes
+- [x] `deduct` and `batch_deduct` reject callers that are not the currently
+  configured `authorized_caller` (panic: `unauthorized: caller is not the authorized caller`)
+- [x] When `authorized_caller` is `None`, privileged caller-only operations
+  are rejected rather than defaulting to owner/admin, preventing accidental
+  over-privileged execution
+- [ ] Rotation flow (set → use → rotate → old caller rejected) covered by
+  unit tests in `contracts/vault/src/test.rs`
+- [ ] Role changes are reviewed as part of the operational runbook; the new
+  caller address is verified off-chain (e.g. multisig or governance) before
+  the owner signs `set_authorized_caller`
+- [ ] `authorized_caller` is scoped strictly to deduct-class operations and
+  does **not** grant the ability to withdraw, distribute, pause, or upgrade
+  the contract
+
+> **Security note:** `authorized_caller` is intentionally a narrow-privilege
+> role meant for the off-chain billing/settlement driver. It can spend vault
+> balance via `deduct` / `batch_deduct` within the configured `max_deduct`
+> limit, so the owning key should rotate it immediately if the off-chain
+> driver's signing key is suspected of compromise. Because rotation is a
+> single-call owner-only operation with an emitted event, recovery is
+> observable and atomic.
+
 
 ### External Calls
 
@@ -185,48 +226,9 @@ have been audited for `require_auth()` coverage as part of Issue #160.
 - Audit branch: `test/require-auth-sweep`
 - Tests: `contracts/vault/src/test.rs`, `contracts/revenue_pool/src/test.rs`, `contracts/settlement/src/test.rs`
 
-## Checked Arithmetic Audit (Issue #233)
+## Authorization Matrix Update (Settlement)
 
-Every `i128` balance mutation in `callora-vault` has been audited and now uses
-`checked_add` / `checked_sub` with an explicit descriptive panic on overflow.
-
-### Mutation inventory
-
-| Function | Operation | Guard |
-|---|---|---|
-| `deposit` | `balance + amount` | `checked_add` → panic `"balance overflow"` |
-| `deduct` | `balance - amount` | `checked_sub` → panic `"balance underflow"` |
-| `batch_deduct` | `running - item.amount` (per item) | `checked_sub` → panic `"balance underflow"` |
-| `batch_deduct` | `total + item.amount` (accumulator) | `checked_add` → panic `"total overflow"` |
-| `withdraw` | `balance - amount` | `checked_sub` → panic `"balance underflow"` |
-| `withdraw_to` | `balance - amount` | `checked_sub` → panic `"balance underflow"` |
-
-### Behavior near `i128::MAX`
-
-- **deposit**: A deposit that would push `balance` past `i128::MAX` panics with
-  `"balance overflow"`. A balance of exactly `i128::MAX` is representable and
-  tested (`deposit_near_i128_max_succeeds`, `deposit_overflow_panics`).
-- **deduct / withdraw / withdraw_to**: Subtraction is always preceded by
-  `assert!(balance >= amount)`, so underflow via a normal call path is
-  impossible. `checked_sub` provides a secondary safety net and is tested by
-  `deduct_to_zero_succeeds`, `withdraw_to_zero_succeeds`, and
-  `withdraw_near_i128_max_succeeds`.
-- **batch_deduct**: Each item is validated against `running` before subtraction,
-  bounding `total ≤ original_balance ≤ i128::MAX` and preventing overflow in
-  the accumulator. End-to-end drain is tested by `batch_deduct_to_zero_succeeds`.
-
-### Workspace `overflow-checks`
-
-`Cargo.toml` sets `overflow-checks = true` for both `[profile.dev]` and
-`[profile.release]` (including `wasm32-unknown-unknown` release builds), so
-plain arithmetic would also trap in all build configurations. The explicit
-`checked_*` calls make intent clear and are independent of profile flags.
-
-### Fixes applied
-
-- Removed duplicate `get_max_deduct()` definition in `lib.rs`.
-- Replaced bare `.unwrap()` on checked operations in `deduct`, `batch_deduct`,
-  `withdraw`, and `withdraw_to` with `unwrap_or_else(|| panic!("..."))` to
-  provide descriptive failure messages.
-- Added three targeted boundary tests: `withdraw_near_i128_max_succeeds`,
-  `batch_deduct_to_zero_succeeds`.
+As part of the authorization matrix hardening for the `callora-settlement` contract:
+- `get_all_developer_balances` now requires `admin` authorization via `require_auth()`. This prevents bulk data scraping while allowing administrative oversight.
+- Comprehensive negative tests have been added to `contracts/settlement/src/test.rs` covering `receive_payment`, `set_admin`, `set_vault`, and `get_all_developer_balances`.
+- Admin rotation (two-step) has been verified to correctly gate access during the transition period.
