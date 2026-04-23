@@ -35,6 +35,7 @@ pub enum StorageKey {
 }
 
 pub const DEFAULT_MAX_DEDUCT: i128 = i128::MAX;
+pub const DEFAULT_MIN_DEPOSIT: i128 = 1;
 pub const MAX_BATCH_SIZE: u32 = 50;
 pub const MAX_METADATA_LEN: u32 = 256;
 pub const MAX_OFFERING_ID_LEN: u32 = 64;
@@ -72,8 +73,8 @@ impl CalloraVault {
         }
         let balance = initial_balance.unwrap_or(0);
         assert!(balance >= 0, "initial balance must be non-negative");
-        let min_d = min_deposit.unwrap_or(0);
-        assert!(min_d >= 0, "min_deposit must be non-negative");
+        let min_d = min_deposit.unwrap_or(DEFAULT_MIN_DEPOSIT);
+        assert!(min_d > 0, "min_deposit must be positive");
         let max_d = max_deduct.unwrap_or(DEFAULT_MAX_DEDUCT);
         assert!(max_d > 0, "max_deduct must be positive");
         assert!(min_d <= max_d, "min_deposit cannot exceed max_deduct");

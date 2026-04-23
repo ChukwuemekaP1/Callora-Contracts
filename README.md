@@ -46,7 +46,7 @@ Release artifacts land in `target/wasm32-unknown-unknown/release/<crate>.wasm`. 
 
 The primary storage and metering contract. Holds USDC on behalf of API consumers and deducts balances on every metered call.
 
-- `init(owner, usdc_token, ..., authorized_caller, min_deposit, revenue_pool, max_deduct)` — Initialize with owner and optional configuration.
+- `init(owner, usdc_token, ..., authorized_caller, min_deposit, revenue_pool, max_deduct)` — Initialize with owner and optional configuration; `min_deposit` defaults to `1` and must be `> 0`.
 - `deposit(caller, amount)` — Owner or allowed depositor increases ledger balance.
 - `deduct(caller, amount, request_id)` — Decrease balance for an API call; routes funds to settlement.
 - `batch_deduct(caller, items)` — Atomically process multiple deductions.
