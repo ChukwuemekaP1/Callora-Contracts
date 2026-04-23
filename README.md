@@ -54,6 +54,9 @@ The primary storage and metering contract. Holds USDC on behalf of API consumers
 - `set_authorized_caller(caller)` — Owner-only; set the address permitted to trigger deductions.
 - `set_price(caller, api_id, price)` — Owner-only; configure the price per call for `api_id`.
 - `get_price(api_id)` — returns `Option<i128>` with the configured price per call for `api_id`.
+- `pause(caller)` — Admin/owner-only; activate circuit-breaker to block deposits and deductions.
+- `unpause(caller)` — Admin/owner-only; deactivate circuit-breaker to restore operations.
+- `is_paused()` — View function; returns current pause state for off-chain monitoring.
 
 ## Architecture & Flow
 
