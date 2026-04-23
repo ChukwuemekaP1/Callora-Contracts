@@ -101,7 +101,7 @@ Advanced settlement with individual developer balance tracking.
 
 ## Development
 
-Use one branch per issue or feature. Run `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, and `./scripts/check-wasm-size.sh` before pushing so every publishable contract stays within Soroban's WASM size limit.
+Use one branch per issue or feature. Run `cargo fmt --package callora-vault --package callora-settlement --package callora-revenue-pool -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, and `./scripts/check-wasm-size.sh` before pushing so every publishable contract stays within Soroban's WASM size limit.
 
 ### Test coverage
 
@@ -117,7 +117,7 @@ The project enforces a **minimum of 95% line coverage** on every push via GitHub
 ```
 callora-contracts/
 ├── .github/workflows/
-│   ├── ci.yml              # CI: fmt, clippy, test, WASM build
+│   ├── ci.yml              # CI: workspace fmt gate, clippy, test, WASM build
 │   └── coverage.yml        # CI: enforces 95% coverage on every push
 ├── contracts/
 │   ├── vault/              # Primary storage and metering
